@@ -70,6 +70,7 @@ public class TermuxApplication extends Application {
 
         if (isTermuxFilesDirectoryAccessible) {
             TermuxShellEnvironment.writeEnvironmentToFile(this);
+            TermuxInstaller.installTermuxApiScriptsIfNeeded(this);
         }
     }
 

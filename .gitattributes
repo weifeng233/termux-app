@@ -3,3 +3,4 @@
 *.gradle    text eol=lf
 *.mk        text eol=lf
 *.sh        text eol=lf
+app/src/main/assets/termux-api/* text eol=lf

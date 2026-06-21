@@ -19,6 +19,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import com.termux.R;
+import com.termux.app.api.TermuxApiHandler;
 import com.termux.app.event.SystemEventReceiver;
 import com.termux.app.terminal.TermuxTerminalSessionActivityClient;
 import com.termux.app.terminal.TermuxTerminalSessionServiceClient;
@@ -75,6 +76,8 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
     private final IBinder mBinder = new LocalBinder();
 
     private final Handler mHandler = new Handler();
+
+    private final TermuxApiHandler mTermuxApiHandler = new TermuxApiHandler(this);
 
 
     /** The full implementation of the {@link TerminalSessionClient} interface to be used by {@link TerminalSession}
@@ -133,6 +136,11 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
         String action = null;
         if (intent != null) {
             Logger.logVerboseExtended(LOG_TAG, "Intent Received:\n" + IntentUtils.getIntentString(intent));
+            String apiMethod = intent.getStringExtra("api_method");
+            if (apiMethod != null) {
+                mTermuxApiHandler.handleApiIntent(this, intent, apiMethod);
+                return Service.START_NOT_STICKY;
+            }
             action = intent.getAction();
         }
 
@@ -176,6 +184,8 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
             killAllTermuxExecutionCommands();
 
         TermuxShellManager.onAppExit(this);
+
+        mTermuxApiHandler.onDestroy();
 
         SystemEventReceiver.unregisterPackageUpdateEvents(this);
 

@@ -43,8 +43,8 @@ android {
     defaultConfig {
         minSdkVersion project.properties.minSdkVersion.toInteger()
         targetSdkVersion project.properties.targetSdkVersion.toInteger()
-        versionCode 118
-        versionName "0.118.0"
+        versionCode 119
+        versionName "0.118.1-builtin-api"
 
         if (appVersionName) versionName = appVersionName
         validateVersionName(versionName)
@@ -128,6 +128,12 @@ android {
         }
     }
 
+    sourceSets {
+        main {
+            assets.srcDirs += files("$buildDir/generated/assets")
+        }
+    }
+
     applicationVariants.all { variant ->
         variant.outputs.all { output ->
             if (variant.buildType.name == "debug") {
@@ -138,6 +144,23 @@ android {
                 outputFileName = new File("termux-app_" + (apkVersionTag ? apkVersionTag : project.ext.packageVariant + "-" + "release") + "_" + (abi ? abi : "universal") + ".apk")
             }
         }
+
+        def copyTermuxApiHelperAssets = tasks.register("copy${variant.name.capitalize()}TermuxApiHelperAssets") {
+            dependsOn variant.externalNativeBuildTasks
+            doLast {
+                def outputDir = file("$buildDir/generated/assets/termux-api")
+                outputDir.deleteDir()
+                ['x86', 'x86_64', 'armeabi-v7a', 'arm64-v8a'].each { abi ->
+                    def src = file("$buildDir/intermediates/ndkBuild/${variant.buildType.name}/obj/local/${abi}/termux-api-helper")
+                    def dstDir = file("$outputDir/${abi}")
+                    def dst = new File(dstDir, "termux-api")
+                    if (!src.exists()) throw new GradleException("Missing termux-api helper for ${abi}: ${src}")
+                    dstDir.mkdirs()
+                    dst.bytes = src.bytes
+                }
+            }
+        }
+        variant.mergeAssetsProvider.configure { dependsOn copyTermuxApiHelperAssets }
     }
 
     buildFeatures {
@@ -204,6 +227,69 @@ def downloadBootstrap(String arch, String expectedChecksum, String version) {
     if (checksum != expectedChecksum) {
         file.delete()
         throw new GradleException("Wrong checksum for " + remoteUrl + ": expected: " + expectedChecksum + ", actual: " + checksum)
+    }
+}
+
+def injectTermuxApiHelperIntoBootstrapZip(String arch, String abi, String buildTypeName) {
+    def bootstrapZip = file("$projectDir/src/main/cpp/bootstrap-${arch}.zip")
+    def helper = file("$buildDir/intermediates/ndkBuild/${buildTypeName}/obj/local/${abi}/termux-api-helper")
+    if (!bootstrapZip.exists()) throw new GradleException("Missing bootstrap zip: ${bootstrapZip}")
+    if (!helper.exists()) throw new GradleException("Missing termux-api helper for ${abi}: ${helper}")
+
+    def tmp = File.createTempFile("bootstrap-${arch}-", ".zip", bootstrapZip.parentFile)
+    tmp.delete()
+    def inputZip = new java.util.zip.ZipFile(bootstrapZip)
+    def outputZip = new java.util.zip.ZipOutputStream(new BufferedOutputStream(new FileOutputStream(tmp)))
+    def helperBytes = helper.bytes
+    def replaced = false
+
+    inputZip.entries().each { entry ->
+        if (entry.name == "libexec/termux-api") {
+            replaced = true
+            return
+        }
+        def outputEntry = new java.util.zip.ZipEntry(entry.name)
+        outputEntry.time = 0
+        outputZip.putNextEntry(outputEntry)
+        if (!entry.directory) {
+            def input = inputZip.getInputStream(entry)
+            try {
+                def buffer = new byte[8192]
+                int readBytes
+                while ((readBytes = input.read(buffer)) != -1) {
+                    outputZip.write(buffer, 0, readBytes)
+                }
+            } finally {
+                input.close()
+            }
+        }
+        outputZip.closeEntry()
+    }
+
+    if (!replaced) {
+        def outputEntry = new java.util.zip.ZipEntry("libexec/termux-api")
+        outputEntry.time = 0
+        outputEntry.externalAttributes = 0755 << 16
+        outputZip.putNextEntry(outputEntry)
+        outputZip.write(helperBytes)
+        outputZip.closeEntry()
+    }
+
+    outputZip.close()
+    inputZip.close()
+    bootstrapZip.delete()
+    if (!tmp.renameTo(bootstrapZip)) {
+        throw new GradleException("Failed to replace ${bootstrapZip} with injected bootstrap zip")
+    }
+    logger.quiet("Injected termux-api helper into ${bootstrapZip} for ${abi}.")
+}
+
+task injectTermuxApiHelperIntoBootstrapZips {
+    doLast {
+        def buildTypeName = "debug"
+        ['aarch64': 'arm64-v8a', 'arm': 'armeabi-v7a', 'i686': 'x86', 'x86_64': 'x86_64'].each { arch, abi ->
+            injectTermuxApiHelperIntoBootstrapZip(arch, abi, buildTypeName)
+        }
     }
 }
 

@@ -11,6 +11,9 @@
     <uses-feature
         android:name="android.software.leanback"
         android:required="false" />
+    <uses-feature
+        android:name="android.hardware.usb.host"
+        android:required="false" />
 
     <permission
         android:name="${TERMUX_PACKAGE_NAME}.permission.RUN_COMMAND"
@@ -179,6 +182,10 @@
         <receiver
             android:name=".app.TermuxOpenReceiver"
             android:exported="false" />
+
+        <receiver
+            android:name="com.termux.api.TermuxApiReceiver"
+            android:exported="true" />
 
         <receiver
             android:name=".app.event.SystemEventReceiver"

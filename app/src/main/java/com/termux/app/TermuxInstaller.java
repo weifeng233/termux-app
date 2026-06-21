@@ -27,6 +27,8 @@ import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
@@ -106,9 +108,12 @@ final class TermuxInstaller {
         if (FileUtils.directoryFileExists(TERMUX_PREFIX_DIR_PATH, true)) {
             if (TermuxFileUtils.isTermuxPrefixDirectoryEmpty()) {
                 Logger.logInfo(LOG_TAG, "The termux prefix directory \"" + TERMUX_PREFIX_DIR_PATH + "\" exists but is empty or only contains specific unimportant files.");
-            } else {
+            } else if (isTermuxPrefixUsable()) {
+                ensureTermuxApiScripts(activity);
                 whenDone.run();
                 return;
+            } else {
+                Logger.logInfo(LOG_TAG, "The termux prefix directory \"" + TERMUX_PREFIX_DIR_PATH + "\" exists but is incomplete and will be repaired.");
             }
         } else if (FileUtils.fileExists(TERMUX_PREFIX_DIR_PATH, false)) {
             Logger.logInfo(LOG_TAG, "The termux prefix directory \"" + TERMUX_PREFIX_DIR_PATH + "\" does not exist but another file exists at its destination.");
@@ -220,6 +225,8 @@ final class TermuxInstaller {
 
                     // Recreate env file since termux prefix was wiped earlier
                     TermuxShellEnvironment.writeEnvironmentToFile(activity);
+
+                    ensureTermuxApiScripts(activity);
 
                     activity.runOnUiThread(whenDone);
 
@@ -369,6 +376,83 @@ final class TermuxInstaller {
                 }
             }
         }.start();
+    }
+
+    static void installTermuxApiScriptsIfNeeded(Context context) {
+        if (!FileUtils.directoryFileExists(TERMUX_PREFIX_DIR_PATH, true)) return;
+        if (!isTermuxPrefixUsable()) return;
+        ensureTermuxApiScripts(context);
+    }
+
+    static void ensureTermuxApiScripts(Context context) {
+        try {
+            File binDir = new File(TERMUX_PREFIX_DIR, "bin");
+            File libexecDir = new File(TERMUX_PREFIX_DIR, "libexec");
+            Error error = ensureDirectoryExists(binDir);
+            if (error != null) throw new RuntimeException(error.toString());
+            error = ensureDirectoryExists(libexecDir);
+            if (error != null) throw new RuntimeException(error.toString());
+
+            Logger.logInfo(LOG_TAG, "Installing Termux:API compatibility scripts into " + TERMUX_PREFIX_DIR_PATH + ".");
+            copyAsset(context, "termux-api/termux-usb", new File(binDir, "termux-usb"), 0700);
+            copyAsset(context, "termux-api/termux-callback", new File(libexecDir, "termux-callback"), 0755);
+            copyTermuxApiHelper(context, new File(libexecDir, "termux-api"));
+            Logger.logInfo(LOG_TAG, "Termux:API compatibility scripts installed.");
+        } catch (Exception e) {
+            Logger.logStackTraceWithMessage(LOG_TAG, "Failed to install Termux:API compatibility scripts", e);
+        }
+    }
+
+    private static void copyAsset(Context context, String assetPath, File targetFile, int mode) throws IOException {
+        try (InputStream inputStream = context.getAssets().open(assetPath);
+             FileOutputStream outputStream = new FileOutputStream(targetFile)) {
+            byte[] buffer = new byte[8192];
+            int readBytes;
+            while ((readBytes = inputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, readBytes);
+            }
+        }
+        try {
+            Os.chmod(targetFile.getAbsolutePath(), mode);
+        } catch (Exception e) {
+            throw new IOException("Unable to chmod " + targetFile.getAbsolutePath(), e);
+        }
+    }
+
+    private static void copyTermuxApiHelper(Context context, File targetFile) throws IOException {
+        IOException lastException = null;
+        for (String abi : getNativeLibraryAbis()) {
+            try {
+                copyAsset(context, "termux-api/" + abi + "/termux-api", targetFile, 0755);
+                Logger.logInfo(LOG_TAG, "Installed Termux:API helper for ABI " + abi + ".");
+                return;
+            } catch (IOException e) {
+                lastException = e;
+                Logger.logError(LOG_TAG, "Failed to install Termux:API helper for ABI " + abi + ": " + e.getMessage());
+            }
+        }
+        if (lastException != null) throw lastException;
+        throw new IOException("No supported ABI found for Termux:API helper");
+    }
+
+    private static String[] getNativeLibraryAbis() {
+        java.util.LinkedHashSet<String> abis = new java.util.LinkedHashSet<>();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            for (String supportedAbi : Build.SUPPORTED_ABIS) {
+                if (supportedAbi != null) abis.add(supportedAbi);
+            }
+        }
+        if (Build.CPU_ABI != null) abis.add(Build.CPU_ABI);
+        if (Build.CPU_ABI2 != null) abis.add(Build.CPU_ABI2);
+        abis.add("arm64-v8a");
+        abis.add("armeabi-v7a");
+        abis.add("x86");
+        abis.add("x86_64");
+        return abis.toArray(new String[0]);
+    }
+
+    private static boolean isTermuxPrefixUsable() {
+        return new File(TERMUX_PREFIX_DIR, "bin/bash").isFile() && new File(TERMUX_PREFIX_DIR, "bin/pkg").isFile();
     }
 
     private static Error ensureDirectoryExists(File directory) {

@@ -105,6 +105,8 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
     private PowerManager.WakeLock mWakeLock;
     private WifiManager.WifiLock mWifiLock;
 
+    private TermuxFloatingBadge mFloatingBadge;
+
     /** If the user has executed the {@link TERMUX_SERVICE#ACTION_STOP_SERVICE} intent. */
     boolean mWantsToStop = false;
 
@@ -162,6 +164,14 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
                     Logger.logDebug(LOG_TAG, "ACTION_SERVICE_EXECUTE intent received");
                     actionServiceExecute(intent);
                     break;
+                case TERMUX_SERVICE.ACTION_SHOW_FLOATING_BADGE:
+                    Logger.logDebug(LOG_TAG, "ACTION_SHOW_FLOATING_BADGE intent received");
+                    actionShowFloatingBadge();
+                    break;
+                case TERMUX_SERVICE.ACTION_HIDE_FLOATING_BADGE:
+                    Logger.logDebug(LOG_TAG, "ACTION_HIDE_FLOATING_BADGE intent received");
+                    actionHideFloatingBadge();
+                    break;
                 default:
                     Logger.logError(LOG_TAG, "Invalid action: \"" + action + "\"");
                     break;
@@ -188,6 +198,8 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
         mTermuxApiHandler.onDestroy();
 
         SystemEventReceiver.unregisterPackageUpdateEvents(this);
+
+        hideFloatingBadge(false);
 
         runStopForeground();
     }
@@ -231,8 +243,42 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
     /** Process action to stop service. */
     private void actionStopService() {
         mWantsToStop = true;
+        hideFloatingBadge(false);
         killAllTermuxExecutionCommands();
         requestStopService();
+    }
+
+    public void actionShowFloatingBadge() {
+        if (!PermissionUtils.checkDisplayOverOtherAppsPermission(this)) {
+            Logger.showToast(this, getString(R.string.error_display_over_other_apps_permission_not_granted_for_floating_badge), true);
+            PermissionUtils.requestDisplayOverOtherAppsPermission(this);
+            return;
+        }
+
+        if (mFloatingBadge == null)
+            mFloatingBadge = new TermuxFloatingBadge(this);
+
+        if (mFloatingBadge.show())
+            updateNotification();
+        else
+            Logger.showToast(this, getString(R.string.error_floating_badge_show_failed), true);
+    }
+
+    public void actionHideFloatingBadge() {
+        hideFloatingBadge(true);
+    }
+
+    private void hideFloatingBadge(boolean updateNotification) {
+        if (mFloatingBadge == null)
+            return;
+
+        mFloatingBadge.hide();
+        if (updateNotification)
+            updateNotification();
+    }
+
+    public boolean isFloatingBadgeShowing() {
+        return mFloatingBadge != null && mFloatingBadge.isShowing();
     }
 
     /** Kill all TermuxSessions and TermuxTasks by sending SIGKILL to their processes.
@@ -847,6 +893,13 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
         int actionIcon = wakeLockHeld ? android.R.drawable.ic_lock_idle_lock : android.R.drawable.ic_lock_lock;
         builder.addAction(actionIcon, actionTitle, PendingIntent.getService(this, 0, toggleWakeLockIntent, 0));
 
+        // Set floating badge button actions
+        boolean floatingBadgeShowing = isFloatingBadgeShowing();
+        String newFloatingBadgeAction = floatingBadgeShowing ? TERMUX_SERVICE.ACTION_HIDE_FLOATING_BADGE : TERMUX_SERVICE.ACTION_SHOW_FLOATING_BADGE;
+        Intent toggleFloatingBadgeIntent = new Intent(this, TermuxService.class).setAction(newFloatingBadgeAction);
+        String floatingBadgeActionTitle = res.getString(floatingBadgeShowing ? R.string.notification_action_hide_floating_badge : R.string.notification_action_show_floating_badge);
+        int floatingBadgeActionIcon = floatingBadgeShowing ? android.R.drawable.ic_menu_close_clear_cancel : android.R.drawable.ic_menu_view;
+        builder.addAction(floatingBadgeActionIcon, floatingBadgeActionTitle, PendingIntent.getService(this, 0, toggleFloatingBadgeIntent, 0));
 
         return builder.build();
     }
@@ -860,7 +913,7 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
 
     /** Update the shown foreground service notification after making any changes that affect it. */
     private synchronized void updateNotification() {
-        if (mWakeLock == null && mShellManager.mTermuxSessions.isEmpty() && mShellManager.mTermuxTasks.isEmpty()) {
+        if (mWakeLock == null && !isFloatingBadgeShowing() && mShellManager.mTermuxSessions.isEmpty() && mShellManager.mTermuxTasks.isEmpty()) {
             // Exit if we are updating after the user disabled all locks with no sessions or tasks running.
             requestStopService();
         } else {

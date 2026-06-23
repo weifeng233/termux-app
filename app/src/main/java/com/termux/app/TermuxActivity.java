@@ -250,6 +250,8 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
         setNewSessionButtonView();
 
+        setFloatingBadgeButtonView();
+
         setToggleKeyboardView();
 
         registerForContextMenu(mTerminalView);
@@ -581,6 +583,21 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
                 R.string.action_new_session_failsafe, text -> mTermuxTerminalSessionActivityClient.addNewSession(true, text),
                 -1, null, null);
             return true;
+        });
+    }
+
+    private void setFloatingBadgeButtonView() {
+        View floatingBadgeButton = findViewById(R.id.floating_badge_button);
+        floatingBadgeButton.setOnClickListener(v -> {
+            if (mTermuxService == null)
+                return;
+
+            if (mTermuxService.isFloatingBadgeShowing())
+                mTermuxService.actionHideFloatingBadge();
+            else
+                mTermuxService.actionShowFloatingBadge();
+
+            getDrawer().closeDrawers();
         });
     }
 

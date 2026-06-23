@@ -998,6 +998,14 @@ public final class TermuxConstants {
             /** Intent action to execute command with TERMUX_SERVICE */
             public static final String ACTION_SERVICE_EXECUTE = TERMUX_PACKAGE_NAME + ".service_execute"; // Default: "com.termux.service_execute"
 
+
+            /** Intent action to show the small Termux floating badge. */
+            public static final String ACTION_SHOW_FLOATING_BADGE = TERMUX_PACKAGE_NAME + ".service_show_floating_badge";
+
+
+            /** Intent action to hide the small Termux floating badge. */
+            public static final String ACTION_HIDE_FLOATING_BADGE = TERMUX_PACKAGE_NAME + ".service_hide_floating_badge";
+
             /** Uri scheme for paths sent via intent to TERMUX_SERVICE */
             public static final String URI_SCHEME_SERVICE_EXECUTE = TERMUX_PACKAGE_NAME + ".file"; // Default: "com.termux.file"
             /** Intent {@code String[]} extra for arguments to the executable of the command for the TERMUX_SERVICE.ACTION_SERVICE_EXECUTE intent */
